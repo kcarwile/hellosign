@@ -1,0 +1,13 @@
+{
+    "name": "hellosign/wp",
+    "description": "HelloSign WP",
+    "type": "project",
+    "require": {
+        "hellosign/hellosign-php-sdk": "^3.5"
+    },
+	"autoload": {
+		"psr-4": {
+		  "HelloSign\\WP\\": "classes/"
+		}
+	}
+}
