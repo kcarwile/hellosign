@@ -21,6 +21,7 @@ if ( class_exists( 'HelloSignWPPlugin' ) ) {
 include_once 'includes/plugin-bootstrap.php';
 
 use HelloSign\WP\Models;
+use HelloSign\WP\Controllers;
 
 /**
  * This plugin uses the MWP Application Framework to init.
@@ -53,18 +54,42 @@ add_action( 'mwp_framework_init', function()
 	/* Register settings to a WP Admin page */
 	$framework->attach( $settings );
 	
-	Models\SignatureRequest::createController('admin', [
+	Models\SignatureRequest::setControllerClass( Controllers\SignatureRequestController::class );
+	Models\SignatureRequest::createController('default', [
 		'adminPage' => [
 			'menu' => 'HelloSign',
 			'title' => 'HelloSign Signature Requests',
 			'menu_submenu' => 'Signature Requests',
 			'type' => 'menu',
+			'icon' => $plugin->fileUrl( 'assets/img/hellosign.png' ),
 		],
 		'tableConfig' => [
+			'bulkActions' => [
+				'update' => 'Update Requests'
+			],
 			'columns' => [
 				'title' => __( 'Title', 'hellosign' ),
-				'request_id' => __( 'Request ID', 'hellosign' ),
-				'type' => __( 'Request Type', 'hellosign' ),
+				'status' => __( 'Request Status', 'hellosign' ),
+				'type' => __( 'Signing Method', 'hellosign' ),
+			],
+			'handlers' => [
+				'title' => function( $row ) {
+					$request = Models\SignatureRequest::load( $row['id'] );
+					return $request->options['title'] ?: $request->title;
+				},
+				'status' => function( $row ) {
+					$request = Models\SignatureRequest::load( $row['id'] );
+					if ( ! $request->request_id ) {
+						return 'Draft';
+					}
+					
+					$signers = $request->request_data['signatures'] ?: array();
+					$signed_count = array_filter( $signers, function($s) { return $s['status_code'] == 'signed'; } );
+					return ( $request->request_data['is_complete'] ? 'Complete' : 'In Progress' ) . " - " . count( $signed_count ) . " of " . count( $signers ) . " signed";
+				},
+				'type' => function( $row ) {
+					return ( $row['type'] == 'embedded' ? 'By Embedded Page' : 'By Email' );
+				},
 			],
 		],
 	]);

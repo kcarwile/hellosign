@@ -91,6 +91,25 @@ class Plugin extends \MWP\Framework\Plugin
 	}
 	
 	/**
+	 * Get templates (with caching)
+	 *
+	 * @param	bool			$recache			Set to TRUE to force cache refresh
+	 * @return	array
+	 */
+	public function getTemplates( $recache=FALSE )
+	{
+		$templates = $this->getCache('templates');
+		
+		if ( $recache or ! $templates ) {
+			$_templates = array_map( function( $t ) { return $t->toArray(); }, iterator_to_array( $this->getClient()->getTemplates() ) );
+			$templates = array_combine( array_column( $_templates, 'template_id' ), $_templates );
+			$this->setCache( 'templates', $templates, FALSE, 60 * 60 );
+		}
+		
+		return $templates;
+	}
+	
+	/**
 	 * Create an embeddable signature request
 	 *
 	 * @param	array					$options			Request configuration options
@@ -103,7 +122,7 @@ class Plugin extends \MWP\Framework\Plugin
 		$request = $this->createRequest( $options );
 		$embedded_request = new EmbeddedSignatureRequest( $request, $this->getSetting('client_id') );
 		
-		return $this->saveRequest( $client->createEmbeddedSignatureRequest( $embedded_request ), 'embedded' );
+		return $client->createEmbeddedSignatureRequest( $embedded_request );
 	}
 	
 	/**
@@ -114,7 +133,7 @@ class Plugin extends \MWP\Framework\Plugin
 	 */
 	public function createRequest( $options )
 	{
-		$request = isset( $options['template_id'] ) ? new TemplateSignatureRequest : new SignatureRequest;
+		$request = ( isset( $options['template_id'] ) && $options['template_id'] ) ? new TemplateSignatureRequest : new SignatureRequest;
 		
 		/* Enable Test Mode */
 		if ( $this->getSetting('test_mode') ) {
@@ -150,15 +169,19 @@ class Plugin extends \MWP\Framework\Plugin
 		
 		/* Signers */
 		if ( isset( $options['signers'] ) and is_array( $options['signers'] ) ) {
-			foreach( $options['signers'] as $email => $name ) {
-				is_array( $name ) ? $request->addSigner( $email, $name[0], $name[1] ) : $request->addSigner( $email, $name ) ;
+			foreach( $options['signers'] as $signer ) {
+				$request->addSigner( $signer['email'], $signer['name'], @$signer['role'] ?: NULL );
 			}
 		}
 		
 		/* Files */
 		if ( isset( $options['files'] ) and is_array( $options['files'] ) ) {
 			foreach( $options['files'] as $file ) {
-				$request->addFile( $file );
+				if ( filter_var( $file['file'], FILTER_VALIDATE_URL ) ) {
+					$request->addFileUrl( $file['file'] );
+				} else {
+					$request->addFile( $file['file'] );
+				}
 			}
 		}
 		
@@ -173,9 +196,14 @@ class Plugin extends \MWP\Framework\Plugin
 			// CC Emails
 			if ( isset( $options['ccs'] ) ) {
 				foreach( $options['ccs'] as $cc ) {
-					if ( is_array( $cc ) ) {
-						$request->setCC( $cc[1], $cc[0] );
-					}
+					$request->setCC( $cc['name'], $cc['email'] );
+				}
+			}
+			
+			// Custom Fields
+			if ( isset( $options['fields'] ) ) {
+				foreach( $options['fields'] as $field ) {
+					$request->setCustomFieldValue( $field['name'], $field['value'] );
 				}
 			}
 		}
@@ -186,7 +214,7 @@ class Plugin extends \MWP\Framework\Plugin
 			// CC Emails
 			if ( isset( $options['ccs'] ) ) {
 				foreach( $options['ccs'] as $cc ) {
-					is_array( $cc ) ? $request->addCC( $cc[0] ) : $request->addCC( $cc );
+					$request->addCC( $cc['email'] );
 				}
 			}
 		}
@@ -205,53 +233,9 @@ class Plugin extends \MWP\Framework\Plugin
 	{
 		$client = $this->getClient();
 		
-		$response = $request instanceof TemplateSignatureRequest ? 
+		return $request instanceof TemplateSignatureRequest ? 
 			$client->sendTemplateSignatureRequest( $request ) : 
 			$client->sendSignatureRequest( $request );
-			
-		return $this->saveRequest( $response, $this->getRequestType( $request ) );
 	}
-	
-	/**
-	 * Get a string that identifies a request type
-	 *
-	 * @param	AbstractSignatureRequest	$request				The signature request
-	 * @return	string
-	 */	
-	public function getRequestType( $request )
-	{
-		if ( $request instanceof TemplateSignatureRequest ) {
-			return 'template';
-		}
-		
-		if ( $request instanceof SignatureRequest ) {
-			return 'standard';
-		}
-		
-		if ( $request instanceof EmbeddedSignatureRequest ) {
-			return 'embedded';
-		}
-		
-		return '';
-	}
-	
-	/**
-	 * Save a signature request response object
-	 *
-	 * @return	SignatureRequest
-	 */
-	public function saveRequest( $request, $type )
-	{
-		$saved_request = new Models\SignatureRequest;
-		
-		$saved_request->title = $request->getTitle();
-		$saved_request->request_id = $request->getId();
-		$saved_request->type = $type;
-		$saved_request->data = $request->toArray();
-		$saved_request->save();
-		
-		return $request;
-	}
-	
 	
 }
